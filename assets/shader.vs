@@ -17,6 +17,7 @@ uniform mat3 u_proj;
 uniform bool u_use_mask;
 uniform vec3 u_mask_pos;
 uniform vec3 u_mask_dir;
+uniform float u_x_scale;
 
 void main() {
   mat3 view = pj * u_proj;
@@ -31,10 +32,9 @@ void main() {
   if(u_use_mask){
     vec2 p = (view * u_mask_pos).xy;
     vec2 d = (view * u_mask_dir).xy;
-    // line equation: (x-px)/dx=(y-py)/dy
-    // into dy x - dx y + (py dy - px dx) = 0
     mask_dist = d.y * gl_Position.x - d.x * gl_Position.y + (p.y * d.y - p.x * d.x);
   }else{
     mask_dist = 1.0;
   }
+  gl_Position.x *= u_x_scale;
 }

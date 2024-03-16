@@ -1,5 +1,6 @@
 use eframe::egui;
-mod tools_func;
+
+mod load_fonts;
 
 fn main() {
     let mut native_options = eframe::NativeOptions::default();
@@ -19,7 +20,8 @@ struct MyEguiApp {
 impl MyEguiApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
-        tools_func::load_fonts(&cc.egui_ctx);
+        load_fonts::load_fonts(&cc.egui_ctx);
+        
         Self { imgn: 0 }
     }
 }

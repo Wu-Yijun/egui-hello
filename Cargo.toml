@@ -9,3 +9,4 @@ edition = "2021"
 eframe = "*"
 egui_extras = { version = "*", features = ["all_loaders"] }
 rand = "*"
+glm = "*"

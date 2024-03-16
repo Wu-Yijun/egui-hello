@@ -1,6 +1,6 @@
 use eframe::{egui, egui_glow, glow};
-
 use egui::mutex::Mutex;
+use glm;
 use std::sync::Arc;
 
 fn main() -> Result<(), eframe::Error> {
@@ -182,7 +182,12 @@ impl RotatingTriangle {
             gl.enable(glow::DEPTH_TEST);
             gl.clear(glow::DEPTH_BUFFER_BIT);
             gl.depth_func(glow::LEQUAL);
-
+            let identity = glm::mat4(
+                1.0, 0.0, 0.0, 0.0, //
+                0.0, 1.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, //
+                0.0, 0.0, 0.0, 1.0, //
+            );
             let colors = [
                 0.0, 1.0, 0.5, 1.0, /* Left */
                 1.0, 0.5, 0.4, 1.0, /* Top */
@@ -195,6 +200,22 @@ impl RotatingTriangle {
                 0.0, -0.7, 0.2, // Bottum
                 -0.7, 0.0, 0.2, // Right
             ];
+            let proj = [
+                angle.cos(),
+                0.0,
+                -angle.sin(),
+                0.0,
+                1.0,
+                0.0,
+                angle.sin(),
+                0.0,
+                angle.cos(),
+            ];
+            gl.uniform_matrix_3_f32_slice(
+                gl.get_uniform_location(self.program, "u_proj").as_ref(),
+                false,
+                &proj,
+            );
             gl.uniform_matrix_4_f32_slice(
                 gl.get_uniform_location(self.program, "u_colors").as_ref(),
                 false,
@@ -207,28 +228,44 @@ impl RotatingTriangle {
             );
             gl.uniform_1_i32(
                 gl.get_uniform_location(self.program, "u_use_mask").as_ref(),
-                false as i32,
+                true as i32,
+            );
+            gl.uniform_3_f32(
+                gl.get_uniform_location(self.program, "u_mask_pos").as_ref(),
+                0.0,
+                0.0,
+                0.0,
+            );
+            gl.uniform_3_f32(
+                gl.get_uniform_location(self.program, "u_mask_dir").as_ref(),
+                1.0,
+                1.0,
+                0.0,
             );
             gl.bind_vertex_array(Some(self.vertex_array));
             let mut angle = angle;
-            for _ in 0..6 {
-                let proj = [
-                    angle.cos(),
-                    0.0,
-                    -angle.sin(),
-                    0.0,
-                    1.0,
-                    0.0,
-                    angle.sin(),
-                    0.0,
-                    angle.cos(),
-                ];
-                angle += (30.0f32).to_radians();
-                gl.uniform_matrix_3_f32_slice(
-                    gl.get_uniform_location(self.program, "u_proj").as_ref(),
-                    false,
-                    &proj,
+            for _ in 0..10 {
+                let points = glm::mat4(
+                    0.7, 0.0, 0.2, 0.0, // Left
+                    0.0, 0.7, 0.2, 0.0, // Top
+                    0.0, -0.7, 0.2, 0.0, // Bottum
+                    -0.7, 0.0, 0.2, 0.0, // Right
                 );
+                let rot = glm::ext::rotate(&identity, angle, glm::vec3(0.0, 1.0, 0.0));
+                let rot = rot * points;
+                let mut pts: Vec<f32> = vec![];
+                for v in rot.as_array() {
+                    pts.push(v.x);
+                    pts.push(v.y);
+                    pts.push(v.z);
+                }
+                gl.uniform_matrix_4x3_f32_slice(
+                    gl.get_uniform_location(self.program, "u_points").as_ref(),
+                    false,
+                    pts.as_slice(),
+                );
+                // println!("{:#?}", pts.as_slice());
+                angle += (36.0f32).to_radians();
 
                 gl.uniform_1_i32(
                     gl.get_uniform_location(self.program, "u_base_layer")
@@ -244,6 +281,36 @@ impl RotatingTriangle {
                 );
                 gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
             }
+            
+            let points = [
+                0.0, 0.0, 0.0, // Left
+                1.0, 1.0, 0.05, // Top
+                1.0, 1.05, 0.0, // Bottum
+                0.0, 0.05, 0.0, // Right
+            ];
+            gl.uniform_matrix_4x3_f32_slice(
+                gl.get_uniform_location(self.program, "u_points").as_ref(),
+                false,
+                &points,
+            );
+            let colors = [
+                1.0, 0.0, 0.0, 1.0, /* Left */
+                1.0, 0.0, 0.0, 1.0, /* Top */
+                1.0, 0.0, 0.0, 1.0, /* Bottom */
+                1.0, 0.0, 0.0, 1.0, /* Right*/
+            ];
+            gl.uniform_matrix_4_f32_slice(
+                gl.get_uniform_location(self.program, "u_colors").as_ref(),
+                false,
+                &colors,
+            );
+            gl.uniform_1_i32(
+                gl.get_uniform_location(self.program, "u_base_layer")
+                    .as_ref(),
+                true as i32,
+            );
+            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+            
         }
     }
 }
