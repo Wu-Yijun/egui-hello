@@ -389,10 +389,76 @@ if img.interact(egui::Sense::click()).clicked() {
 
 ## 正交投影伪三维
 
+一个投影矩阵加一个转动矩阵就ok了，如下：
+```Rust
+let colors = [
+    0.0, 1.0, 0.5, 1.0, /* Left */
+    1.0, 0.5, 0.4, 1.0, /* Top */
+    1.0, 0.5, 0.0, 1.0, /* Bottom */
+    0.5, 0.0, 1.0, 1.0, /* Right*/
+];
+let points = [
+    0.7,  0.0, 0.0, // Left
+    0.0,  0.7, 0.0, // Top
+    0.0, -0.7, 0.0, // Bottum
+   -0.7,  0.0, 0.0, // Right
+];
+let proj = [
+    angle.cos(),    0.0,    -angle.sin(),
+    0.0,            1.0,    0.0,
+    angle.sin(),    0.0,    angle.cos(),
+];
+```
+```GLSL
+const int permutation[4] = int[4](1, 0, 3, 2);
+const highp float zRatio = -0.1;
+const highp float zoffset = 0.001;
+const mat3x3 pj = mat3x3(0.866025,  -0.5,   zRatio,
+                         0.0,       1.0,    zRatio,
+                         -0.866025, -0.5,   zRatio
+);
+out vec4 v_color;
+uniform int u_order;
+uniform mat4 u_colors;
+uniform mat4x3 u_points;
+uniform mat3 u_proj;
+void main() {
+    if (u_order % 2 == 0) {
+        v_color = u_colors[gl_VertexID];
+        gl_Position = vec4(pj * u_proj * u_points[gl_VertexID], 1.0);
+    } else {
+        v_color = u_colors[permutation[gl_VertexID]] * 0.5;
+        gl_Position = vec4(pj * u_proj * u_points[permutation[gl_VertexID]], 1.0);
+        gl_Position.z += zoffset;
+    }
+}
+```
 
+然后会以类似如下的坐标框架显示（图中的 Z 对应着我们程序里的 Y 轴，而图中的 -Y 对应着我们程序里的 Z 轴）
+![@image](images/image12.png)
 
 ## 三维前后关系
 
+md 见鬼了，Depth Test 完全没效果，谁先 draw 谁在下层，后draw的完全不会discard。
+我终于找到原因了，害的我研究了一晚上。
+![@image](images/image13.png)
+> 因为我们不用，所以干脆默认就不能用，欸嘿。
+
+欸嘿你个头，我查了多少资料才发现的，害我一直以为 glow 有 Bug 了。感谢这两位仁兄，! [@link](https://github.com/emilk/egui/discussions/937#discussioncomment-1768955:~:text=used%20set%20the-,depth%20buffer,-to%200%20bits)(@text:它只说了要加 depth bits) 和 ! [@link](https://github.com/emilk/egui/discussions/2599#discussioncomment-4698327:~:text=add%20this%20option)(@text:它给出了问题的解决方法)
+
+然后我们可以循环角度，这样就能同时渲染出多个有层次关系的面。
+其中还有一个小技巧，由于我们开启了深度缓冲，每个面都需要着色两次，一次打底，一次半透明，若深度相同会导致图像重叠，出现深度冲突的典型特征——三角锯齿。因此我们还有一个小小的 `zoffset` 默认向前移动了 0.001 ，这样保证第二次能通过深度测试。
+最终效果如下：
+![@image](images/image11.png)
+
 ## Clip
+
+其实也可以叫做遮罩效果。! [@link](https://blog.csdn.net/jaryguo/article/details/52627151)(@text:参见这篇CSDN博客)。
+GL_SCISSOR_TEST 是有这样的功能，但是这个只能剪裁矩形区域，因此，我决定在 shader 中加入剪裁功能。
+
+我们目前的剪裁逻辑如下，任意给定空间的一条直线，（姑且先通过点和一个线段得到），然后这条空间直线会确定一个投影平面的一条二维射线 $Ax+By+C=0$ ，然后我们根据这条射线，剪切掉它左侧的部分。
+这里有一个简单的思路，我们将点到这条射线的距离作为参数录入顶点着色器，左侧为负，右侧为正，然后在片段着色器内根据距离舍弃小于 0 的部分。
+着色器代码如下：
+
 
 ## Infinifold

@@ -8,6 +8,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default().with_inner_size([350.0, 380.0]),
         multisampling: 4,
         renderer: eframe::Renderer::Glow,
+        depth_buffer: 24,
         ..Default::default()
     };
     eframe::run_native(
@@ -103,8 +104,8 @@ impl RotatingTriangle {
                 r#"
                     const vec2 verts[3] = vec2[3](
                         vec2(0.0, 1.0),
-                        vec2(-1.0, -1.0),
-                        vec2(1.0, -1.0)
+                        vec2(-1.0, -0.8),
+                        vec2(1.0, -0.8)
                     );
                     const vec4 colors[3] = vec4[3](
                         vec4(1.0, 0.0, 0.0, 1.0),
@@ -113,10 +114,14 @@ impl RotatingTriangle {
                     );
                     out vec4 v_color;
                     uniform float u_angle;
+                    uniform float offset;
                     void main() {
-                        v_color = colors[gl_VertexID];
                         gl_Position = vec4(verts[gl_VertexID], 0.0, 1.0);
                         gl_Position.x *= cos(u_angle);
+                        v_color = colors[gl_VertexID];
+                        gl_Position.z = offset;
+                        gl_Position.x += offset;
+                        gl_Position.y += offset;
                     }
                 "#,
                 r#"
@@ -187,11 +192,35 @@ impl RotatingTriangle {
         use glow::HasContext as _;
         unsafe {
             gl.use_program(Some(self.program));
+            // gl.get_active_attributes(program);
+
+            gl.disable(glow::BLEND);
+            gl.depth_mask(true);
+            gl.enable(glow::DEPTH_TEST);
+            gl.clear(glow::DEPTH_BUFFER_BIT);
+            gl.depth_func(glow::LEQUAL);
+            gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+
             gl.uniform_1_f32(
                 gl.get_uniform_location(self.program, "u_angle").as_ref(),
                 angle,
             );
+            gl.uniform_1_f32(
+                gl.get_uniform_location(self.program, "offset").as_ref(),
+                0.0,
+            );
             gl.bind_vertex_array(Some(self.vertex_array));
+            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+
+            gl.uniform_1_f32(
+                gl.get_uniform_location(self.program, "offset").as_ref(),
+                0.2,
+            );
+            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            gl.uniform_1_f32(
+                gl.get_uniform_location(self.program, "offset").as_ref(),
+                -0.2,
+            );
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
         }
     }

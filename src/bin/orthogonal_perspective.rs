@@ -1,4 +1,4 @@
-use eframe::{egui, egui_glow, glow::{self, HasContext}};
+use eframe::{egui, egui_glow, glow};
 
 use egui::mutex::Mutex;
 use std::sync::Arc;
@@ -8,6 +8,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default().with_inner_size([350.0, 680.0]),
         multisampling: 4,
         renderer: eframe::Renderer::Glow,
+        depth_buffer: 24,
         ..Default::default()
     };
     eframe::run_native(
@@ -21,7 +22,6 @@ struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     rotating_triangle: Arc<Mutex<RotatingTriangle>>,
     angle: f32,
-    order: i32,
 }
 
 impl MyApp {
@@ -33,7 +33,6 @@ impl MyApp {
         Self {
             rotating_triangle: Arc::new(Mutex::new(RotatingTriangle::new(gl))),
             angle: 0.0,
-            order: 0,
         }
     }
 }
@@ -54,7 +53,7 @@ impl eframe::App for MyApp {
             egui::Frame::canvas(ui.style()).show(ui, |ui| {
                 self.custom_painting(ui);
             });
-            ui.label("Drag to rotate!");
+            ui.label(format!("Drag to rotate(angle:{})!", self.angle));
         });
         egui::CentralPanel::default()
             .frame(egui::containers::Frame {
@@ -84,14 +83,12 @@ impl MyApp {
 
         // Clone locals so we can move them into the paint callback:
         let angle = self.angle;
-        let order = self.order;
-        self.order += 1;
         let rotating_triangle = self.rotating_triangle.clone();
 
         let callback = egui::PaintCallback {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |_info, painter| {
-                rotating_triangle.lock().paint(painter.gl(), angle, order);
+                rotating_triangle.lock().paint(painter.gl(), angle);
             })),
         };
         ui.painter().add(callback);
@@ -159,6 +156,9 @@ impl RotatingTriangle {
                 .create_vertex_array()
                 .expect("Cannot create vertex array");
 
+            gl.enable(glow::DEPTH_TEST);
+            gl.depth_func(glow::LEQUAL);
+
             Self {
                 program,
                 vertex_array,
@@ -174,63 +174,76 @@ impl RotatingTriangle {
         }
     }
 
-    fn paint(&self, gl: &glow::Context, angle: f32, order: i32) {
+    fn paint(&self, gl: &glow::Context, angle: f32) {
         use glow::HasContext as _;
         unsafe {
             gl.use_program(Some(self.program));
+            // gl.depth_mask(true);
+            gl.enable(glow::DEPTH_TEST);
+            gl.clear(glow::DEPTH_BUFFER_BIT);
+            gl.depth_func(glow::LEQUAL);
+
             let colors = [
-                1.0, 0.5, 0.4, 0.6, /* Top */
                 0.0, 1.0, 0.5, 1.0, /* Left */
-                0.5, 0.0, 1.0, 1.0, /* Right*/
+                1.0, 0.5, 0.4, 1.0, /* Top */
                 1.0, 0.5, 0.0, 1.0, /* Bottom */
+                0.5, 0.0, 1.0, 1.0, /* Right*/
+            ];
+            let points = [
+                0.7, 0.0, 0.2, // Left
+                0.0, 0.7, 0.2, // Top
+                0.0, -0.7, 0.2, // Bottum
+                -0.7, 0.0, 0.2, // Right
             ];
             gl.uniform_matrix_4_f32_slice(
                 gl.get_uniform_location(self.program, "u_colors").as_ref(),
                 false,
                 &colors,
             );
-            gl.uniform_1_f32(
-                gl.get_uniform_location(self.program, "u_angle").as_ref(),
-                angle,
+            gl.uniform_matrix_4x3_f32_slice(
+                gl.get_uniform_location(self.program, "u_points").as_ref(),
+                false,
+                &points,
             );
             gl.uniform_1_i32(
-                gl.get_uniform_location(self.program, "u_order").as_ref(),
-                order,
+                gl.get_uniform_location(self.program, "u_use_mask").as_ref(),
+                false as i32,
             );
             gl.bind_vertex_array(Some(self.vertex_array));
-            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+            let mut angle = angle;
+            for _ in 0..6 {
+                let proj = [
+                    angle.cos(),
+                    0.0,
+                    -angle.sin(),
+                    0.0,
+                    1.0,
+                    0.0,
+                    angle.sin(),
+                    0.0,
+                    angle.cos(),
+                ];
+                angle += (30.0f32).to_radians();
+                gl.uniform_matrix_3_f32_slice(
+                    gl.get_uniform_location(self.program, "u_proj").as_ref(),
+                    false,
+                    &proj,
+                );
 
-            let colors = [
-                1.0, 0.5, 0.0, 0.5, /* Top */
-                0.0, 1.0, 0.5, 0.5, /* Left */
-                0.5, 0.0, 1.0, 0.5, /* Right*/
-                1.0, 0.5, 0.0, 0.5, /* Bottom */
-            ];
-            let colors = [
-                0.5, 0.25, 0.2, 0.3, /* Top */
-                0.0, 0.5, 0.25, 0.5, /* Left */
-                0.25, 0.0, 0.5, 0.5, /* Right*/
-                0.5, 0.25, 0.0, 0.5, /* Bottom */
-            ];
-            
-            // let colors = [
-            //     0.0, 0.0, 0.0, 0.0, /* Top */
-            //     0.0, 0.0, 0.0, 0.0, /* Left */
-            //     0.0, 0.0, 0.0, 0.0, /* Right*/
-            //     0.0, 0.0, 0.0, 0.0, /* Bottom */
-            // ];
-            gl.uniform_matrix_4_f32_slice(
-                gl.get_uniform_location(self.program, "u_colors").as_ref(),
-                false,
-                &colors,
-            );
-            gl.uniform_1_i32(
-                gl.get_uniform_location(self.program, "u_order").as_ref(),
-                order + 1,
-            );
-            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+                gl.uniform_1_i32(
+                    gl.get_uniform_location(self.program, "u_base_layer")
+                        .as_ref(),
+                    true as i32,
+                );
+                gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
 
-            
+                gl.uniform_1_i32(
+                    gl.get_uniform_location(self.program, "u_base_layer")
+                        .as_ref(),
+                    false as i32,
+                );
+                gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+            }
         }
     }
 }
