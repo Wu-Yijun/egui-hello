@@ -311,14 +311,85 @@ UI 的透明度选项于 2 月 16 号更新到了 git 储存库中，但是最�
 
 ## Animation
 
-明天再搞，我还要写作业。
+~~明天再搞，我还要写作业。~~
+Animate 有两种方式，其一是使用 `ui.input(|i| i.time)` 来获取时间，然后根据时间计算样式，一旦样式发生变化，会强制渲染器重绘场景。
+另一种是使用 `ctx.animate_value_with_time(unique_id, target, time)` 来返回一个过渡的值，初次调用向其中传入一个原始值，之后当 target 更改时，会再 time 的时间内从原先的值变化到新值。
+
+然后还有 Canvas 可以用于绘图。
+见文件 ! [@file](src/bin/animate.rs)
+见文件 ! [@file](src/bin/animation.rs)
+
 
 ## 渐变填充
 > 希望可以不要用到 GL ，不然后面的部分都是 Opengl 大法了。
 
+目前看来 Canvas 自带的绘图没法那么高级的绘制，而且从示例 ! [@file](src/bin/gradient.rs) 可以看出 glow 可以比较友好的插入代码中，而不需要通篇的 Unsafe.
+因此我决定先写一个着色器。重点在于绘制四边形。
+首先，我们考虑一个单位正方形 $(0,0),(1,0),(0,1),(1,1)$ 它的四个顶点对应四种不同的颜色 $c_{00},c_{10},c_{01},c_{11}$ ，然后对于矩形内部的任意位置 $(x,y)$ ，应当显示的颜色为 $c(x,y)=(1-x)(1-y)c_{00} + x(1-y)c_{10} + (1-x)yc_{01} + xyc_{11}$ ，也就是按比例分配颜色。
+
+![@image](images/image7.png)
+
+但问题是，Opengl 使用的三角形渲染，假设三角形三个顶点为 $A,B,C$ 三角形内部一点 $P$ ，则 $P$ 关于三角形 A,B,C 三个顶点的权重为 $\alpha,\beta,\gamma$ 满足：$\alpha A + \beta B + \gamma C = P \rArr \alpha CA + \beta CB = CP$ 这样能求出三个权重。然后根据权重来分配颜色为 $color = \alpha c1 + \beta c2 + \gamma c3$。
+然后就出现了上面的情形，四个点颜色一致，但是一个是上下两个三角形，一个是左右两个三角形，但绘制结果差别挺大的。
+我们需要找到一种方式，将三角形渲染的结果等效为正方形，而不是上下两个三角形拼接的结果。
+考虑最左侧的直角三角形，它的颜色需要满足 $(1-x-y)c_{00}+(y-x)c_{01}+2x(c_{00}+c_{10}+c_{01}+c_{11})/4 = c(x,y)$ 明显从x y的次幂上看不满足。
+
+因此我们只能想办法找一种近似的算法来完成着色。
+用 Blender 渲染出来的颜色如下所示，没有那么的鲜艳，但是能看出混合的效果还是很均匀的，唯一的问题就是，中心位置的颜色的饱和度很低，但这似乎也是我们可以接受的。
+![@image](images/image8.png)
+
+所以在调试了几次之后我发现，一个可行的方案是，
+第一遍绘制正常的颜色，按水平/垂直分割三角形。第二遍绘制时，全部颜色（rgba）取1/2值，按垂直/水平分割三角形。两次叠加的效果正好近似于混合（如下所示）。这是因为两种顺序的渲染都是同样的效果，说明我们的叠加是**平衡的**。
+![@image](images/image9.png)
+
 ## 纹理填充
 
+用 OpenGL 的纹理填充，以及使用Ui的半透明背景。
+
+### Ui 图像背景填充
+
+这个倒是挺容易的，直接就有方法 Button::image(img) 来创建含背景的按钮。
+然后我们在 `ui.add(btn3)` 之后就可以直接创建点击功能。
+```Rust
+let img = egui::Image::new(format!("file://assets/ferris{}.png", self.imgn)).max_height(100.0);
+let btn3 = egui::Button::image(img)
+    .fill(egui::Color32::TRANSPARENT)
+    .frame(false);
+let btn3 = ui.add(btn3);
+if btn3.clicked() {
+    self.imgn = if self.imgn < 1 { 6 } else { self.imgn - 1 };
+}
+btn3.on_hover_text_at_pointer("Previous Image");
+```
+
+但是，这种方法没有对应的文字，因此我们应当创建一个img，在img位置绘制文本，最后为这个图像添加交互事件。
+```Rust
+let img = ui.add(
+    egui::Image::new(format!("file://assets/ferris{}.png", self.imgn)).max_height(50.0),
+);
+ui.painter().text(
+    img.rect.center(),
+    egui::Align2::CENTER_CENTER,
+    "点我",
+    egui::FontId {
+        size: 20.0,
+        family: egui::FontFamily::Proportional,
+    },
+    egui::Color32::BLUE,
+);
+if img.interact(egui::Sense::click()).clicked() {
+    println!("Clicked");
+}
+```
+![@image](images/image10.png)
+
+### Opengl 背景填充
+
+之后用到再说。
+
 ## 正交投影伪三维
+
+
 
 ## 三维前后关系
 
